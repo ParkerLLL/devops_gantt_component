@@ -96,6 +96,16 @@ const openTaskUrl = () => {
             </div>
           </div>
 
+          <!-- 版本/迭代简述 -->
+          <div v-if="task.type === 'version' || task.type === 'sprint'" class="summary-section">
+            <h3 class="section-title">
+              📋 {{ task.type === 'version' ? '版本' : '迭代' }}简述
+            </h3>
+            <div class="summary-placeholder">
+              <p>{{ task.type === 'version' ? '版本' : '迭代' }}简述信息将在后续数据中提供</p>
+            </div>
+          </div>
+
           <!-- 进度条 -->
           <div class="progress-section">
             <div class="progress-header">
@@ -362,6 +372,39 @@ const openTaskUrl = () => {
   padding: 6px 12px;
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.05);
+}
+
+/* 版本简述部分 */
+.summary-section {
+  margin: 16px;
+  padding: 20px;
+  background: linear-gradient(135deg, var(--bg-secondary), var(--bg-tertiary));
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--border-secondary);
+}
+
+.summary-section .section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 16px 0;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--primary);
+}
+
+.summary-placeholder {
+  padding: 20px;
+  text-align: center;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  border: 2px dashed var(--border-secondary);
+}
+
+.summary-placeholder p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-style: italic;
 }
 
 /* 进度条部分 */

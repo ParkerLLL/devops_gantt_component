@@ -67,39 +67,50 @@ body {
 }
 
 header {
-  padding: 3rem 2rem 2rem;
-  text-align: center;
+  padding: 1rem 2rem 0.5rem;
+  text-align: left;
   position: relative;
+  border-bottom: 1px solid var(--border-secondary);
+  background: var(--bg-secondary);
 }
 
 header h1 {
   margin: 0;
   color: var(--text-primary);
-  font-size: 48px;
+  font-size: 24px;
   font-weight: 600;
   letter-spacing: -0.003em;
-  line-height: 1.0834933333;
+  line-height: 1.2;
   background: linear-gradient(135deg, var(--text-primary) 0%, var(--text-secondary) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  margin-bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+header h1::before {
+  content: '📊';
+  font-size: 20px;
+  -webkit-text-fill-color: initial;
 }
 
 header::after {
-  content: '精美的项目管理甘特图';
+  content: '项目管理甘特图';
   display: block;
-  font-size: 21px;
-  line-height: 1.381;
+  font-size: 13px;
+  line-height: 1.3;
   font-weight: 400;
   color: var(--text-secondary);
-  margin-top: 4px;
+  margin-top: 2px;
   letter-spacing: 0.011em;
 }
 
 main {
-  padding: 0 2rem 3rem;
-  max-width: 1200px;
-  margin: 0 auto;
+  padding: 0;
+  max-width: none;
+  margin: 0;
+  height: calc(100vh - 80px);
 }
 </style>

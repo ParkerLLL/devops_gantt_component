@@ -10,7 +10,6 @@ const emit = defineEmits<{
 
 const props = defineProps<{
   isSelected: boolean;
-  isCritical: boolean;
   task: GanttTask;
   xScale: d3.ScaleTime<number, number>;
   y: number;
@@ -106,8 +105,8 @@ const labelPosition = computed(() => {
       :width="bar.width"
       :height="height - 8"
       :fill="barColor"
-      :stroke="isCritical ? '#d93026' : 'none'"
-      :stroke-width="isCritical ? 2 : 0"
+      stroke="none"
+      stroke-width="0"
       rx="3"
       ry="3"
       class="task-bar"

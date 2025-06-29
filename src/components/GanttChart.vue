@@ -9,7 +9,6 @@ import Tooltip from './Tooltip.vue';
 import type { GanttTask } from '@/types';
 import { fetchGanttData } from '@/services/mockData';
 import TaskDetailsModal from './TaskDetailsModal.vue';
-import CriticalPathWorker from '@/workers/criticalPath.worker?worker';
 
 const ganttWidth = 1200;
 const ganttBodyHeight = 600; 
@@ -32,7 +31,6 @@ const selectedTaskId = ref<string | null>(null);
 const isModalVisible = ref(false);
 const taskForModal = ref<GanttTask | null>(null);
 
-const criticalPathIds = ref(new Set<string>());
 
 const tasks = ref<GanttTask[]>([]);
 
@@ -40,7 +38,10 @@ const tasks = ref<GanttTask[]>([]);
 const filters = ref({
   department: '',
   project: '',
-  type: ''
+  type: '',
+  search: '',
+  startDate: '',
+  endDate: ''
 });
 
 // 添加回到今天的方法
@@ -55,6 +56,191 @@ const scrollToToday = () => {
     
     rightPaneRef.value.scrollLeft = scrollLeft;
   }
+};
+
+// 打开API文档
+const openApiDocs = () => {
+  // 在新窗口中打开API文档页面
+  window.open('/docs/API.html', '_blank', 'noopener,noreferrer');
+};
+
+// 智能分析相关状态
+const isAnalysisModalVisible = ref(false);
+const selectedVersionForAnalysis = ref('');
+const analysisResult = ref<any>(null);
+const isAnalyzing = ref(false);
+
+// 打开智能分析
+const openSmartAnalysis = () => {
+  isAnalysisModalVisible.value = true;
+  // 设置默认选择第一个版本
+  if (filteredTasks.value.length > 0) {
+    selectedVersionForAnalysis.value = filteredTasks.value[0].id;
+  }
+};
+
+// 执行智能分析
+const performAnalysis = async () => {
+  if (!selectedVersionForAnalysis.value) return;
+  
+  isAnalyzing.value = true;
+  
+  try {
+    // 找到选中的版本/迭代
+    const selectedVersion = allTasksForScale.value.find(task => task.id === selectedVersionForAnalysis.value);
+    if (!selectedVersion) return;
+    
+    // 收集该版本下的所有工作项
+    const collectChildren = (task: GanttTask): GanttTask[] => {
+      let items = [task];
+      if (task.children) {
+        task.children.forEach(child => {
+          items = items.concat(collectChildren(child));
+        });
+      }
+      return items;
+    };
+    
+    const allItems = collectChildren(selectedVersion);
+    
+    // 执行分析
+    const analysis = analyzeVersionProgress(allItems, selectedVersion);
+    analysisResult.value = analysis;
+    
+  } catch (error) {
+    console.error('分析失败:', error);
+  } finally {
+    isAnalyzing.value = false;
+  }
+};
+
+// 智能分析核心逻辑
+const analyzeVersionProgress = (items: GanttTask[], version: GanttTask) => {
+  const now = new Date();
+  const startDate = new Date(version.start_date);
+  const endDate = new Date(version.end_date);
+  
+  // 基础统计
+  const totalItems = items.length - 1; // 排除版本本身
+  const completedItems = items.filter(item => item !== version && item.status === '已完成').length;
+  const inProgressItems = items.filter(item => item !== version && item.status === '进行中').length;
+  const notStartedItems = items.filter(item => item !== version && !['已完成', '进行中'].includes(item.status)).length;
+  
+  // 进度计算
+  const completionRate = totalItems > 0 ? (completedItems / totalItems) * 100 : 0;
+  
+  // 时间进度
+  const totalDuration = endDate.getTime() - startDate.getTime();
+  const elapsedDuration = now.getTime() - startDate.getTime();
+  const timeProgress = Math.max(0, Math.min(100, (elapsedDuration / totalDuration) * 100));
+  
+  // 是否延期
+  const isOverdue = now > endDate && completionRate < 100;
+  const isAtRisk = timeProgress > completionRate + 15; // 时间进度超过完成进度15%认为有风险
+  
+  // 人员分析
+  const creatorStats = new Map<string, { total: number; completed: number }>();
+  items.forEach(item => {
+    if (item !== version && item.creator) {
+      if (!creatorStats.has(item.creator)) {
+        creatorStats.set(item.creator, { total: 0, completed: 0 });
+      }
+      const stats = creatorStats.get(item.creator)!;
+      stats.total++;
+      if (item.status === '已完成') {
+        stats.completed++;
+      }
+    }
+  });
+  
+  // 类型分析
+  const typeStats = new Map<string, { total: number; completed: number }>();
+  items.forEach(item => {
+    if (item !== version && item.type) {
+      if (!typeStats.has(item.type)) {
+        typeStats.set(item.type, { total: 0, completed: 0 });
+      }
+      const stats = typeStats.get(item.type)!;
+      stats.total++;
+      if (item.status === '已完成') {
+        stats.completed++;
+      }
+    }
+  });
+  
+  // 生成建议
+  const suggestions = [];
+  
+  if (isOverdue) {
+    suggestions.push('⚠️ 项目已延期，建议重新评估剩余工作量和交付时间');
+  }
+  
+  if (isAtRisk) {
+    suggestions.push('🚨 项目进度滞后，时间进度超过完成进度，需要加快推进');
+  }
+  
+  if (completionRate < 30 && timeProgress > 50) {
+    suggestions.push('📈 建议增加人力投入或调整需求优先级');
+  }
+  
+  // 找出效率较低的人员
+  const lowEfficiencyCreators = Array.from(creatorStats.entries())
+    .filter(([_, stats]) => stats.total >= 3 && (stats.completed / stats.total) < 0.5)
+    .map(([creator, _]) => creator);
+    
+  if (lowEfficiencyCreators.length > 0) {
+    suggestions.push(`👥 以下人员完成率较低，建议关注: ${lowEfficiencyCreators.join(', ')}`);
+  }
+  
+  // 找出问题较多的类型
+  const problematicTypes = Array.from(typeStats.entries())
+    .filter(([_, stats]) => stats.total >= 2 && (stats.completed / stats.total) < 0.4)
+    .map(([type, _]) => type);
+    
+  if (problematicTypes.length > 0) {
+    suggestions.push(`🔧 以下类型完成率较低，可能需要额外关注: ${problematicTypes.join(', ')}`);
+  }
+  
+  if (suggestions.length === 0) {
+    suggestions.push('✅ 项目进展良好，继续保持当前节奏');
+  }
+  
+  return {
+    version: version.text,
+    summary: {
+      totalItems,
+      completedItems,
+      inProgressItems,
+      notStartedItems,
+      completionRate: Math.round(completionRate * 100) / 100,
+      timeProgress: Math.round(timeProgress * 100) / 100,
+      isOverdue,
+      isAtRisk
+    },
+    creatorStats: Array.from(creatorStats.entries()).map(([name, stats]) => ({
+      name,
+      total: stats.total,
+      completed: stats.completed,
+      rate: Math.round((stats.completed / stats.total) * 10000) / 100
+    })),
+    typeStats: Array.from(typeStats.entries()).map(([name, stats]) => ({
+      name,
+      total: stats.total,
+      completed: stats.completed,
+      rate: Math.round((stats.completed / stats.total) * 10000) / 100
+    })),
+    suggestions
+  };
+};
+
+// 清除所有筛选条件
+const clearFilters = () => {
+  filters.value.department = '';
+  filters.value.project = '';
+  filters.value.type = '';
+  filters.value.search = '';
+  filters.value.startDate = '';
+  filters.value.endDate = '';
 };
 
 onMounted(async () => {
@@ -104,14 +290,17 @@ const filterOptions = computed(() => {
 const filteredTasks = computed(() => {
   let filtered = [...tasks.value];
 
+  // 部门筛选
   if (filters.value.department) {
     filtered = filtered.filter(task => task.department_name === filters.value.department);
   }
 
+  // 项目筛选
   if (filters.value.project) {
     filtered = filtered.filter(task => task.project_name === filters.value.project);
   }
 
+  // 类型筛选
   if (filters.value.type) {
     filtered = filtered.filter(task => {
       // 检查任务本身或其子任务是否匹配类型
@@ -121,6 +310,31 @@ const filteredTasks = computed(() => {
       }
       return false;
     });
+  }
+
+  // 搜索筛选
+  if (filters.value.search) {
+    const searchTerm = filters.value.search.toLowerCase();
+    filtered = filtered.filter(task => {
+      // 搜索任务名称、创建人、项目名称
+      const searchFields = [
+        task.text,
+        task.creator,
+        task.project_name,
+        task.status
+      ].join(' ').toLowerCase();
+      
+      return searchFields.includes(searchTerm);
+    });
+  }
+
+  // 日期筛选 (基于创建时间 - 这里用start_date作为创建时间)
+  if (filters.value.startDate) {
+    filtered = filtered.filter(task => task.start_date >= filters.value.startDate);
+  }
+
+  if (filters.value.endDate) {
+    filtered = filtered.filter(task => task.start_date <= filters.value.endDate);
   }
 
   return filtered;
@@ -153,23 +367,19 @@ const allTasksForScale = computed(() => {
     return all;
 });
 
-// --- Critical Path Calculation ---
-const worker = new CriticalPathWorker();
-
-worker.onmessage = (event: MessageEvent<string[]>) => {
-  criticalPathIds.value = new Set(event.data);
-};
-
-watch(allTasksForScale, (all) => {
-  if (all && all.length > 0) {
-    // Use a deep copy to avoid passing proxies to the worker
-    worker.postMessage(JSON.parse(JSON.stringify(all)));
-  }
-}, { immediate: true });
-
-onUnmounted(() => {
-  worker.terminate();
+// 筛选后的所有任务（包括子任务）用于统计
+const filteredTasksForStats = computed(() => {
+    const all: GanttTask[] = [];
+    const traverse = (task: GanttTask) => {
+        all.push(task);
+        if (task.children) {
+            task.children.forEach(traverse);
+        }
+    };
+    filteredTasks.value.forEach(traverse);
+    return all;
 });
+
 
 const handleToggleTask = (taskId: string) => {
   const findAndToggle = (tasksToSearch: GanttTask[]): boolean => {
@@ -484,9 +694,9 @@ const ganttRowsStyle = computed(() => ({
   backgroundSize: `100% ${dynamicRowHeight.value}px`,
 }));
 
-// 计算工作项统计数据
+// 计算工作项统计数据 - 基于筛选后的任务
 const workItemStats = computed(() => {
-  if (allTasksForScale.value.length === 0) {
+  if (filteredTasksForStats.value.length === 0) {
     return {
       requirements: { total: 0, closed: 0 },
       tasks: { total: 0, closed: 0 },
@@ -494,7 +704,7 @@ const workItemStats = computed(() => {
     };
   }
 
-  return allTasksForScale.value.reduce((stats, task) => {
+  return filteredTasksForStats.value.reduce((stats, task) => {
     stats.requirements.total += task.stats.total_requirements || 0;
     stats.requirements.closed += task.stats.closed_requirements || 0;
     stats.tasks.total += task.stats.total_tasks || 0;
@@ -518,32 +728,84 @@ const workItemStats = computed(() => {
     </div>
     <template v-else>
       <div class="gantt-container" @click="handleGanttContainerClick">
-        <!-- 筛选器栏 -->
-        <div class="filter-bar">
-          <div class="filter-item">
-            <label>部门:</label>
-            <select v-model="filters.department">
-              <option value="">全部部门</option>
-              <option v-for="department in filterOptions.departments" :key="department" :value="department">{{ department }}</option>
-            </select>
+        <!-- 主控制栏 -->
+        <div class="main-controls">
+          <!-- 搜索区域 -->
+          <div class="search-section">
+            <div class="search-box">
+              <svg class="search-icon" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M7 12c2.761 0 5-2.239 5-5s-2.239-5-5-5-5 2.239-5 5 2.239 5 5 5z" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                <path d="M12 12l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+              <input 
+                v-model="filters.search" 
+                type="text" 
+                placeholder="搜索版本、项目或创建人..." 
+                class="search-input"
+              />
+              <button 
+                v-if="filters.search" 
+                @click="filters.search = ''" 
+                class="search-clear"
+                title="清除搜索"
+              >
+                ✕
+              </button>
+            </div>
           </div>
-          <div class="filter-item">
-            <label>项目:</label>
-            <select v-model="filters.project">
-              <option value="">全部项目</option>
-              <option v-for="project in filterOptions.projects" :key="project" :value="project">{{ project }}</option>
-            </select>
+
+          <!-- 筛选器区域 -->
+          <div class="filters-section">
+            <div class="filter-group">
+              <select v-model="filters.department" class="filter-select">
+                <option value="">全部部门</option>
+                <option v-for="department in filterOptions.departments" :key="department" :value="department">{{ department }}</option>
+              </select>
+              <select v-model="filters.project" class="filter-select">
+                <option value="">全部项目</option>
+                <option v-for="project in filterOptions.projects" :key="project" :value="project">{{ project }}</option>
+              </select>
+              <select v-model="filters.type" class="filter-select">
+                <option value="">全部类型</option>
+                <option v-for="type in filterOptions.types" :key="type" :value="type">{{ type }}</option>
+              </select>
+            </div>
+            
+            <!-- 日期筛选 -->
+            <div class="date-filter-group">
+              <input 
+                v-model="filters.startDate" 
+                type="date" 
+                class="date-input"
+                title="开始日期"
+              />
+              <span class="date-separator">至</span>
+              <input 
+                v-model="filters.endDate" 
+                type="date" 
+                class="date-input"
+                title="结束日期"
+              />
+            </div>
           </div>
-          <div class="filter-item">
-            <label>类型:</label>
-            <select v-model="filters.type">
-              <option value="">全部类型</option>
-              <option v-for="type in filterOptions.types" :key="type" :value="type">{{ type }}</option>
-            </select>
+
+          <!-- 操作按钮区域 -->
+          <div class="actions-section">
+            <button 
+              v-if="filters.department || filters.project || filters.type || filters.search || filters.startDate || filters.endDate" 
+              @click="clearFilters" 
+              class="clear-filters-btn"
+              title="清除所有筛选条件"
+            >
+              ✕ 清除
+            </button>
+            <button @click="openApiDocs" class="api-docs-btn" title="查看API文档">📄 API</button>
+            <button @click="openSmartAnalysis" class="smart-analysis-btn" title="智能分析版本进度">🧠 智能分析</button>
           </div>
         </div>
 
-        <div class="toolbar">
+        <!-- 工具栏和统计 -->
+        <div class="controls-bar">
           <div class="view-controls">
             <div class="view-mode-group">
               <button @click="viewMode = 'day'" :class="{ active: viewMode === 'day' }">日</button>
@@ -562,21 +824,32 @@ const workItemStats = computed(() => {
             </div>
             <button @click="scrollToToday" class="today-btn">回到今天</button>
           </div>
-          <div class="stats-container">
-            <div class="stat-item">
-              <span class="stat-label">需求</span>
-              <span class="stat-value">{{ workItemStats.requirements.closed }}/{{ workItemStats.requirements.total }}</span>
+          
+          <!-- 统计信息 -->
+          <div class="stats-info">
+            <div class="filter-summary">
+              <span class="filter-summary-text">
+                显示 <strong>{{ filteredTasks.length }}</strong> 个版本/迭代，
+                共 <strong>{{ filteredTasksForStats.length }}</strong> 个工作项
+              </span>
             </div>
-            <div class="stat-item">
-              <span class="stat-label">任务</span>
-              <span class="stat-value">{{ workItemStats.tasks.closed }}/{{ workItemStats.tasks.total }}</span>
-            </div>
-            <div class="stat-item">
-              <span class="stat-label">缺陷</span>
-              <span class="stat-value">{{ workItemStats.defects.closed }}/{{ workItemStats.defects.total }}</span>
+            <div class="stats-container">
+              <div class="stat-item">
+                <span class="stat-label">需求</span>
+                <span class="stat-value">{{ workItemStats.requirements.closed }}/{{ workItemStats.requirements.total }}</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">任务</span>
+                <span class="stat-value">{{ workItemStats.tasks.closed }}/{{ workItemStats.tasks.total }}</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">缺陷</span>
+                <span class="stat-value">{{ workItemStats.defects.closed }}/{{ workItemStats.defects.total }}</span>
+              </div>
             </div>
           </div>
         </div>
+
         
         <div class="gantt-grid" :style="ganttGridStyle">
           <div class="gantt-task-list-header">
@@ -592,7 +865,7 @@ const workItemStats = computed(() => {
             <div :style="{ height: `${totalSize}px`, position: 'relative' }">
               <template v-for="row in visibleVirtualRows" :key="row.task.id">
                 <div
-                  :class="['task-list-item', { 'task-selected': row.task.id === selectedTaskId, 'task-critical': criticalPathIds.has(row.task.id) }]"
+                  :class="['task-list-item', { 'task-selected': row.task.id === selectedTaskId }]"
                   :style="{ position: 'absolute', top: 0, left: 0, width: '100%', height: `${row.size}px`, transform: `translateY(${row.start}px)` }"
                   @click.stop="handleTaskClick(row.task, $event)"
                   @dblclick="handleDoubleClick(row.task)"
@@ -623,7 +896,7 @@ const workItemStats = computed(() => {
                                 :y="0" 
                                 :height="dynamicRowHeight" 
                                 :is-selected="row.task.id === selectedTaskId" 
-                                :is-critical="criticalPathIds.has(row.task.id)" 
+ 
                                 @click.stop="(task, event) => handleTaskClick(task, event)" 
                                 @dblclick="(task) => handleDoubleClick(task)" 
                             />
@@ -637,6 +910,117 @@ const workItemStats = computed(() => {
       </div>
       <Tooltip :visible="tooltipState.visible" :task="tooltipState.task" :position="tooltipState.position" />
       <TaskDetailsModal :visible="isModalVisible" :task="taskForModal" @close="closeModal()" />
+      
+      <!-- 智能分析模态框 -->
+      <div v-if="isAnalysisModalVisible" class="modal-overlay" @click.self="isAnalysisModalVisible = false">
+        <div class="smart-analysis-modal">
+          <div class="modal-header">
+            <h2>🧠 智能分析</h2>
+            <button @click="isAnalysisModalVisible = false" class="close-btn">✕</button>
+          </div>
+          
+          <div class="modal-content">
+            <!-- 版本选择 -->
+            <div class="version-selector">
+              <label>选择版本/迭代:</label>
+              <select v-model="selectedVersionForAnalysis" class="version-select">
+                <option value="">请选择版本</option>
+                <option v-for="task in filteredTasks" :key="task.id" :value="task.id">{{ task.text }}</option>
+              </select>
+              <button 
+                @click="performAnalysis" 
+                :disabled="!selectedVersionForAnalysis || isAnalyzing"
+                class="analyze-btn"
+              >
+                {{ isAnalyzing ? '分析中...' : '开始分析' }}
+              </button>
+            </div>
+            
+            <!-- 分析结果 -->
+            <div v-if="analysisResult" class="analysis-results">
+              <h3>{{ analysisResult.version }} - 分析报告</h3>
+              
+              <!-- 总体概况 -->
+              <div class="summary-section">
+                <h4>📊 总体概况</h4>
+                <div class="summary-grid">
+                  <div class="summary-item">
+                    <span class="summary-label">总工作项</span>
+                    <span class="summary-value">{{ analysisResult.summary.totalItems }}</span>
+                  </div>
+                  <div class="summary-item">
+                    <span class="summary-label">已完成</span>
+                    <span class="summary-value completed">{{ analysisResult.summary.completedItems }}</span>
+                  </div>
+                  <div class="summary-item">
+                    <span class="summary-label">进行中</span>
+                    <span class="summary-value in-progress">{{ analysisResult.summary.inProgressItems }}</span>
+                  </div>
+                  <div class="summary-item">
+                    <span class="summary-label">未开始</span>
+                    <span class="summary-value not-started">{{ analysisResult.summary.notStartedItems }}</span>
+                  </div>
+                </div>
+                
+                <div class="progress-comparison">
+                  <div class="progress-item">
+                    <span>完成进度: {{ analysisResult.summary.completionRate }}%</span>
+                    <div class="progress-bar">
+                      <div class="progress-fill completion" :style="{ width: analysisResult.summary.completionRate + '%' }"></div>
+                    </div>
+                  </div>
+                  <div class="progress-item">
+                    <span>时间进度: {{ analysisResult.summary.timeProgress }}%</span>
+                    <div class="progress-bar">
+                      <div class="progress-fill time" :style="{ width: analysisResult.summary.timeProgress + '%' }"></div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="status-badges">
+                  <span v-if="analysisResult.summary.isOverdue" class="status-badge overdue">延期</span>
+                  <span v-if="analysisResult.summary.isAtRisk" class="status-badge at-risk">风险</span>
+                  <span v-if="!analysisResult.summary.isOverdue && !analysisResult.summary.isAtRisk" class="status-badge normal">正常</span>
+                </div>
+              </div>
+              
+              <!-- 人员分析 -->
+              <div class="creator-section">
+                <h4>👥 人员完成率分析</h4>
+                <div class="stats-grid">
+                  <div v-for="creator in analysisResult.creatorStats" :key="creator.name" class="stats-item">
+                    <div class="stats-name">{{ creator.name }}</div>
+                    <div class="stats-numbers">{{ creator.completed }}/{{ creator.total }}</div>
+                    <div class="stats-rate" :class="{ 'low-rate': creator.rate < 50 }">{{ creator.rate }}%</div>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- 类型分析 -->
+              <div class="type-section">
+                <h4>🔧 类型完成率分析</h4>
+                <div class="stats-grid">
+                  <div v-for="type in analysisResult.typeStats" :key="type.name" class="stats-item">
+                    <div class="stats-name">{{ type.name }}</div>
+                    <div class="stats-numbers">{{ type.completed }}/{{ type.total }}</div>
+                    <div class="stats-rate" :class="{ 'low-rate': type.rate < 50 }">{{ type.rate }}%</div>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- 建议 -->
+              <div class="suggestions-section">
+                <h4>💡 优化建议</h4>
+                <ul class="suggestions-list">
+                  <li v-for="(suggestion, index) in analysisResult.suggestions" :key="index" class="suggestion-item">
+                    {{ suggestion }}
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </template>
   </div>
 </template>
@@ -645,12 +1029,9 @@ const workItemStats = computed(() => {
 .gantt-container-wrapper {
   position: relative;
   width: 100%;
-  height: 80vh;
+  height: 100%;
   background: var(--bg-secondary);
-  border-radius: var(--radius-xl);
   overflow: hidden;
-  box-shadow: var(--shadow-heavy);
-  border: 1px solid var(--border-tertiary);
 }
 .gantt-container {
   display: flex;
@@ -658,29 +1039,259 @@ const workItemStats = computed(() => {
   width: 100%;
   height: 100%;
   background: var(--bg-secondary);
-  border-radius: var(--radius-xl);
   overflow: hidden;
 }
 
-.filter-bar {
-  padding: 16px 24px;
+/* 主控制栏 */
+.main-controls {
+  padding: 12px 20px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-secondary);
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  min-height: 56px;
+}
+
+/* 搜索区域 */
+.search-section {
+  flex: 1;
+  min-width: 300px;
+}
+
+.search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-medium);
+  padding: 8px 12px;
+  transition: all 0.2s ease;
+}
+
+.search-box:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+}
+
+.search-icon {
+  color: var(--text-secondary);
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+.search-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', Helvetica, Arial, sans-serif;
+}
+
+.search-input::placeholder {
+  color: var(--text-secondary);
+}
+
+.search-clear {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+  margin-left: 8px;
+}
+
+.search-clear:hover {
+  color: var(--error);
+  background: rgba(255, 59, 48, 0.1);
+}
+
+/* 筛选器区域 */
+.filters-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.filter-group {
+  display: flex;
+  gap: 8px;
+}
+
+.filter-select {
+  padding: 8px 12px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-small);
+  background: var(--bg-secondary);
+  min-width: 120px;
+  font-size: 13px;
+  color: var(--text-primary);
+  transition: all 0.2s ease;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', Helvetica, Arial, sans-serif;
+}
+
+.filter-select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.1);
+}
+
+.date-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-small);
+  border: 1px solid var(--border-primary);
+}
+
+.date-input {
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', Helvetica, Arial, sans-serif;
+  outline: none;
+}
+
+.date-separator {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+/* 操作按钮区域 */
+.actions-section {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.clear-filters-btn {
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-small);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', Helvetica, Arial, sans-serif;
+}
+
+.clear-filters-btn:hover {
+  background: var(--error);
+  border-color: var(--error);
+  color: white;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-light);
+}
+
+.api-docs-btn {
+  padding: 8px 12px;
+  background: var(--secondary);
+  border: 1px solid var(--secondary);
+  border-radius: var(--radius-small);
+  color: white;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', Helvetica, Arial, sans-serif;
+}
+
+.api-docs-btn:hover {
+  background: #4B44C7;
+  border-color: #4B44C7;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-medium);
+}
+
+/* 工具栏和统计 */
+.controls-bar {
+  padding: 12px 20px;
   background: var(--bg-tertiary);
   border-bottom: 1px solid var(--border-secondary);
   display: flex;
-  align-items: center;
-  gap: 24px;
-  flex-shrink: 0;
-  flex-wrap: wrap;
-}
-.toolbar {
-  padding: 20px 24px;
-  border-bottom: 1px solid var(--border-secondary);
-  background: var(--bg-secondary);
-  flex-shrink: 0;
-  display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  min-height: 48px;
 }
+
+.stats-info {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.filter-summary-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', Helvetica, Arial, sans-serif;
+}
+
+.filter-summary-text strong {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* 响应式设计 */
+@media (max-width: 1024px) {
+  .main-controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 16px 20px;
+  }
+  
+  .search-section {
+    min-width: auto;
+  }
+  
+  .filters-section {
+    justify-content: center;
+  }
+  
+  .controls-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  
+  .stats-info {
+    justify-content: space-between;
+  }
+}
+
+@media (max-width: 768px) {
+  .filter-group {
+    flex-direction: column;
+    width: 100%;
+  }
+  
+  .filter-select {
+    min-width: auto;
+  }
+  
+  .date-filter-group {
+    flex-direction: column;
+    gap: 4px;
+  }
+  
+  .stats-container {
+    flex-direction: column;
+    gap: 8px;
+  }
+}
+/* 旧的toolbar样式已被新的controls-bar替代 */
 .view-controls {
   display: flex;
   gap: 16px;
@@ -762,6 +1373,26 @@ const workItemStats = computed(() => {
   font-weight: 600;
   box-shadow: var(--shadow-light);
 }
+
+.api-docs-btn {
+  margin-left: 12px;
+  background: var(--secondary) !important;
+  border: 1px solid var(--secondary) !important;
+  color: #ffffff !important;
+  font-weight: 500;
+  font-size: 13px;
+  box-shadow: var(--shadow-light);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.api-docs-btn:hover {
+  background: #4B44C7 !important;
+  border-color: #4B44C7 !important;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-medium);
+}
 .stats-container {
   display: flex;
   gap: 16px;
@@ -801,6 +1432,7 @@ const workItemStats = computed(() => {
   grid-template-rows: auto 1fr;
   flex: 1;
   min-height: 0;
+  height: calc(100vh - 200px); /* 减去header、main-controls、controls-bar的高度 */
 }
 
 
@@ -811,15 +1443,16 @@ const workItemStats = computed(() => {
   border-right: 1px solid var(--border-secondary);
   padding: 0 24px;
   font-weight: 600;
-  height: 60px;
+  height: 80px; /* 增加高度为滚动条留出空间 */
   display: flex;
-  align-items: center;
+  align-items: flex-start; /* 改为顶部对齐 */
   justify-content: space-between;
   grid-row: 1;
   color: var(--text-primary);
   font-size: 15px;
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', Helvetica, Arial, sans-serif;
   position: relative;
+  padding-bottom: 20px; /* 为滚动条留出底部空间 */
 }
 
 .gantt-task-list-header {
@@ -867,6 +1500,25 @@ const workItemStats = computed(() => {
 .gantt-timeline-header {
   overflow-x: auto;
   overflow-y: visible;
+  scrollbar-width: thin; /* 使用较细的滚动条 */
+  scrollbar-color: var(--border-primary) transparent;
+}
+
+.gantt-timeline-header::-webkit-scrollbar {
+  height: 8px; /* 减少滚动条高度 */
+}
+
+.gantt-timeline-header::-webkit-scrollbar-track {
+  background: var(--bg-tertiary);
+}
+
+.gantt-timeline-header::-webkit-scrollbar-thumb {
+  background: var(--border-primary);
+  border-radius: 4px;
+}
+
+.gantt-timeline-header::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
 }
 
 .gantt-task-list-body {
@@ -989,24 +1641,335 @@ const workItemStats = computed(() => {
   line-height: 1.4;
 }
 
-.task-list-item.task-critical {
-  color: var(--error);
-  font-weight: 600;
-  position: relative;
-}
-
-.task-list-item.task-critical::after {
-  content: '⚡';
-  position: absolute;
-  right: 12px;
-  font-size: 12px;
-  color: var(--warning);
-  animation: pulse 2s infinite;
-}
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
+}
+
+/* 智能分析按钮样式 */
+.smart-analysis-btn {
+  background: linear-gradient(135deg, #FF6B6B, #4ECDC4);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: var(--radius-small);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(255, 107, 107, 0.2);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', Helvetica, Arial, sans-serif;
+}
+
+.smart-analysis-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(255, 107, 107, 0.3);
+}
+
+.smart-analysis-btn:active {
+  transform: translateY(0);
+}
+
+/* 智能分析模态框样式 */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.smart-analysis-modal {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-large);
+  box-shadow: var(--shadow-heavy);
+  width: 90%;
+  max-width: 800px;
+  max-height: 90vh;
+  overflow-y: auto;
+  border: 1px solid var(--border-secondary);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px;
+  border-bottom: 1px solid var(--border-secondary);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-large) var(--radius-large) 0 0;
+}
+
+.modal-header h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 18px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.close-btn:hover {
+  background: var(--bg-quaternary);
+  color: var(--text-primary);
+}
+
+.modal-content {
+  padding: 24px;
+}
+
+/* 版本选择区域 */
+.version-selector {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+  padding: 16px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-medium);
+  border: 1px solid var(--border-secondary);
+}
+
+.version-selector label {
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.version-select {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-small);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.analyze-btn {
+  background: var(--primary);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: var(--radius-small);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.analyze-btn:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+
+.analyze-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* 分析结果样式 */
+.analysis-results {
+  margin-top: 20px;
+}
+
+.analysis-results h3 {
+  color: var(--text-primary);
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 20px 0;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--primary);
+}
+
+.analysis-results h4 {
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 600;
+  margin: 20px 0 12px 0;
+}
+
+/* 总体概况样式 */
+.summary-section {
+  margin-bottom: 24px;
+  padding: 20px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-medium);
+  border: 1px solid var(--border-secondary);
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.summary-item {
+  text-align: center;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-small);
+  border: 1px solid var(--border-secondary);
+}
+
+.summary-label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.summary-value {
+  display: block;
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.summary-value.completed { color: var(--success); }
+.summary-value.in-progress { color: var(--primary); }
+.summary-value.not-started { color: var(--text-secondary); }
+
+/* 进度条样式 */
+.progress-comparison {
+  margin: 20px 0;
+}
+
+.progress-item {
+  margin-bottom: 12px;
+}
+
+.progress-item span {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.progress-bar {
+  height: 8px;
+  background: var(--bg-quaternary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.progress-fill.completion { background: var(--success); }
+.progress-fill.time { background: var(--primary); }
+
+/* 状态徽章 */
+.status-badges {
+  display: flex;
+  gap: 8px;
+}
+
+.status-badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  color: white;
+}
+
+.status-badge.overdue { background: var(--error); }
+.status-badge.at-risk { background: var(--warning); }
+.status-badge.normal { background: var(--success); }
+
+/* 统计网格样式 */
+.creator-section, .type-section {
+  margin-bottom: 24px;
+  padding: 20px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-medium);
+  border: 1px solid var(--border-secondary);
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.stats-item {
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-small);
+  border: 1px solid var(--border-secondary);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.stats-name {
+  font-weight: 500;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.stats-numbers {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0 8px;
+}
+
+.stats-rate {
+  font-weight: 600;
+  color: var(--success);
+  min-width: 50px;
+  text-align: right;
+}
+
+.stats-rate.low-rate {
+  color: var(--error);
+}
+
+/* 建议样式 */
+.suggestions-section {
+  margin-bottom: 24px;
+  padding: 20px;
+  background: linear-gradient(135deg, var(--bg-tertiary), var(--bg-secondary));
+  border-radius: var(--radius-medium);
+  border: 1px solid var(--border-secondary);
+}
+
+.suggestions-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.suggestion-item {
+  padding: 12px;
+  margin-bottom: 8px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-small);
+  border-left: 4px solid var(--primary);
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.suggestion-item:last-child {
+  margin-bottom: 0;
 }
 
 

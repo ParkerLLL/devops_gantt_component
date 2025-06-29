@@ -27,6 +27,15 @@ const initialTasks: GanttTask[] = [
       total_defects: 19, 
       closed_defects: 12 
     },
+    // summary 字段结构示例，实际数据由后端提供
+    // summary: {
+    //   description: '版本描述',
+    //   goals: ['目标1', '目标2'],
+    //   features: ['特性1', '特性2'],
+    //   risks: ['风险1', '风险2'],
+    //   stakeholders: ['干系人1', '干系人2'],
+    //   notes: '备注信息'
+    // },
     children: [
       {
         id: 'req-ci-001',
@@ -39,6 +48,7 @@ const initialTasks: GanttTask[] = [
         status: '已完成',
         project_name: '蓝鲸持续集成平台',
         department_name: 'TEG',
+        url: 'https://devops.tencent.com/ms/bkci/requirements/001',
         stats: { total_issues: 1, closed_issues: 1, is_overdue: false, overdue_days: 0, total_requirements: 1, closed_requirements: 1, total_tasks: 0, closed_tasks: 0, total_defects: 0, closed_defects: 0 }
       },
       {
@@ -53,6 +63,7 @@ const initialTasks: GanttTask[] = [
         status: '已完成',
         project_name: '蓝鲸持续集成平台',
         department_name: 'TEG',
+        url: 'https://devops.tencent.com/ms/bkci/tasks/001',
         stats: { total_issues: 1, closed_issues: 1, is_overdue: false, overdue_days: 0, total_requirements: 0, closed_requirements: 0, total_tasks: 1, closed_tasks: 1, total_defects: 0, closed_defects: 0 }
       },
       {
@@ -79,6 +90,7 @@ const initialTasks: GanttTask[] = [
         status: '已修复',
         project_name: '蓝鲸持续集成平台',
         department_name: 'TEG',
+        url: 'https://devops.tencent.com/ms/bkci/defects/001',
         stats: { total_issues: 1, closed_issues: 1, is_overdue: false, overdue_days: 0, total_requirements: 0, closed_requirements: 0, total_tasks: 0, closed_tasks: 0, total_defects: 1, closed_defects: 1 }
       },
       {
@@ -133,6 +145,29 @@ const initialTasks: GanttTask[] = [
       closed_tasks: 5, 
       total_defects: 14, 
       closed_defects: 0 
+    },
+    summary: {
+      description: '蓝鲸CI V4.0版本将实现全面云原生化改造，支持容器化部署和微服务架构，为企业级持续集成提供更强大的扩展性。',
+      goals: [
+        '实现100%云原生架构',
+        '支持Kubernetes集群部署',
+        '构建企业级安全体系',
+        '提供AI辅助开发功能'
+      ],
+      features: [
+        '容器化微服务架构',
+        'K8s原生调度器',
+        '多租户安全隔离',
+        'AI代码质量检测',
+        '智能流水线推荐'
+      ],
+      risks: [
+        '容器化迁移技术复杂度高',
+        'AI功能需要大量训练数据',
+        '多租户架构安全挑战'
+      ],
+      stakeholders: ['架构师', '云原生工程师', '安全工程师', 'AI算法工程师', 'DevOps工程师'],
+      notes: '该版本是技术架构的重大升级，需要与基础设施团队密切配合。'
     },
     children: [
       {
@@ -294,6 +329,30 @@ const initialTasks: GanttTask[] = [
       closed_tasks: 9, 
       total_defects: 10, 
       closed_defects: 2 
+    },
+    summary: {
+      description: '蓝鲸支付V1.0是全新的企业级支付解决方案，提供安全、高效的支付服务，支持多种支付方式和金融场景。',
+      goals: [
+        '构建安全可靠的支付核心',
+        '支持主流支付渠道接入',
+        '实现金融级风控体系',
+        '提供完整的对账清算功能'
+      ],
+      features: [
+        '多渠道支付聚合',
+        '实时风险控制',
+        '自动对账系统',
+        '数据加密传输',
+        '监管合规报告'
+      ],
+      risks: [
+        '金融监管政策变化风险',
+        '支付渠道稳定性依赖',
+        '数据安全合规要求高',
+        '第三方接口变更风险'
+      ],
+      stakeholders: ['产品经理', '支付专家', '风控工程师', '安全工程师', '合规专员', '测试工程师'],
+      notes: '该项目涉及金融业务，需严格遵循监管要求，当前进度略有延期，需要加强风险管控。'
     },
     children: [
       {

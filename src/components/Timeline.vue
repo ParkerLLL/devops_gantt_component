@@ -9,7 +9,7 @@ const props = defineProps<{
 }>();
 
 const svgRef = ref<SVGSVGElement | null>(null);
-const height = 80; // 时间轴高度，与头部容器一致
+const height = 80; // 匹配甘特图头部高度
 
 const renderTimeline = () => {
   if (!svgRef.value) return;
@@ -20,69 +20,119 @@ const renderTimeline = () => {
   // 1. 直接使用传入的xScale
   const xScale = props.xScale;
   const domain = xScale.domain();
+  
+  console.log('Timeline rendering with:', {
+    viewMode: props.viewMode,
+    domain: domain,
+    width: props.width,
+    xScaleRange: xScale.range()
+  });
 
-  // 2. 创建简化的单层时间轴，确保文本能正确显示
-  let axis;
-  let tickFormat;
+  // 2. 手动创建刻度而不依赖D3的自动轴生成
+  let tickValues: Date[] = [];
+  let formatFunction: (d: Date) => string;
 
+  // 根据视图模式和容器宽度生成合适间距的刻度
+  const minSpacing = 80; // 最小间距80px
+  const maxTicks = Math.floor(props.width / minSpacing);
+  
   switch (props.viewMode) {
     case 'month':
-      axis = d3.axisBottom(xScale)
-        .ticks(d3.timeMonth.every(1))
-        .tickFormat((d) => {
-          const date = d as Date;
-          const month = date.getMonth() + 1;
-          const year = date.getFullYear();
-          return `${year}年${month}月`;
-        });
+      // 按月份生成刻度
+      const monthStart = new Date(domain[0].getFullYear(), domain[0].getMonth(), 1);
+      const monthEnd = new Date(domain[1].getFullYear(), domain[1].getMonth() + 1, 0);
+      const allMonths = d3.timeMonth.range(monthStart, monthEnd);
+      // 根据容器宽度动态调整显示的月份数量
+      const monthStep = Math.max(1, Math.ceil(allMonths.length / Math.min(maxTicks, 6)));
+      tickValues = allMonths.filter((_, i) => i % monthStep === 0);
+      formatFunction = (d: Date) => `${d.getFullYear()}年${d.getMonth() + 1}月`;
       break;
     case 'week':
-      axis = d3.axisBottom(xScale)
-        .ticks(d3.timeWeek.every(1))
-        .tickFormat((d) => {
-          const date = d as Date;
-          const month = date.getMonth() + 1;
-          const day = date.getDate();
-          return `${month}/${day}`;
-        });
+      // 按周生成刻度，显示为日期，每3-4天一个刻度
+      const weekStart = new Date(domain[0]);
+      const weekEnd = new Date(domain[1]);
+      const weekDayInterval = Math.max(2, Math.ceil((weekEnd.getTime() - weekStart.getTime()) / (1000 * 60 * 60 * 24) / maxTicks));
+      tickValues = d3.timeDay.every(weekDayInterval)?.range(weekStart, weekEnd) || [];
+      formatFunction = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
       break;
     default: // day
-      const totalDays = d3.timeDay.count(domain[0], domain[1]);
-      const dayInterval = Math.max(1, Math.ceil(totalDays / 15));
-      
-      axis = d3.axisBottom(xScale)
-        .ticks(d3.timeDay.every(dayInterval))
-        .tickFormat((d) => {
-          const date = d as Date;
-          const month = date.getMonth() + 1;
-          const day = date.getDate();
+      // 按天生成刻度，根据时间范围动态调整间隔
+      const dayStart = new Date(domain[0]);
+      const dayEnd = new Date(domain[1]);
+      const totalDays = (dayEnd.getTime() - dayStart.getTime()) / (1000 * 60 * 60 * 24);
+      const dayInterval = Math.max(1, Math.ceil(totalDays / Math.min(maxTicks, 15))); // 限制最多15个刻度
+      const allDayTicks = d3.timeDay.every(dayInterval)?.range(dayStart, dayEnd) || [];
+      // 确保日期格式正确，避免跨月显示问题
+      tickValues = allDayTicks.filter(d => d >= dayStart && d <= dayEnd);
+      formatFunction = (d: Date) => {
+        const day = d.getDate();
+        const month = d.getMonth() + 1;
+        // 如果是月初或者跨月，显示月/日，否则只显示日
+        if (day === 1 || (tickValues.length > 0 && d.getMonth() !== tickValues[0].getMonth())) {
           return `${month}/${day}`;
-        });
+        }
+        return `${day}日`;
+      };
       break;
   }
 
-  // 3. 绘制背景网格线
+  console.log('Generated tick values:', tickValues.map(d => ({ date: d, formatted: formatFunction(d) })));
+
+  // 3. 绘制网格线
   svg.append('g')
     .attr('class', 'grid')
     .attr('transform', `translate(0, ${height})`)
-    .call(axis
-      .tickSize(-height)
-      .tickFormat(() => '')
-    );
+    .selectAll('line')
+    .data(tickValues)
+    .enter()
+    .append('line')
+    .attr('x1', d => xScale(d))
+    .attr('x2', d => xScale(d))
+    .attr('y1', 0)
+    .attr('y2', -height)
+    .style('stroke', '#E5E5EA')
+    .style('stroke-width', 1)
+    .style('opacity', 0.5);
 
-  // 4. 绘制主轴（确保文本在可见区域内）
-  const axisGroup = svg.append('g')
-    .attr('class', 'axis axis-main')
-    .attr('transform', `translate(0, ${height - 20})`) // 给文本留更多空间
-    .call(axis);
+  // 4. 绘制主轴线
+  svg.append('line')
+    .attr('class', 'domain')
+    .attr('x1', 0)
+    .attr('x2', props.width)
+    .attr('y1', 30)
+    .attr('y2', 30)
+    .style('stroke', '#D2D2D7')
+    .style('stroke-width', 1);
+
+  // 5. 手动绘制刻度线和文本
+  const tickGroup = svg.append('g')
+    .attr('class', 'ticks');
+
+  tickValues.forEach(tickValue => {
+    const x = xScale(tickValue);
     
-  // 确保文字样式正确应用
-  axisGroup.selectAll('text')
-    .style('font-size', '12px')
-    .style('font-weight', '500')
-    .style('text-anchor', 'middle')
-    .style('fill', 'var(--text-primary)')
-    .style('font-family', '-apple-system, BlinkMacSystemFont, "SF Pro Text", Helvetica, Arial, sans-serif');
+    // 绘制刻度线
+    tickGroup.append('line')
+      .attr('x1', x)
+      .attr('x2', x)
+      .attr('y1', 30)
+      .attr('y2', 36)
+      .style('stroke', '#D2D2D7')
+      .style('stroke-width', 1);
+    
+    // 绘制文本标签 - 位置调整到避免被滚动条遮挡
+    tickGroup.append('text')
+      .attr('x', x)
+      .attr('y', 55) // 调整到合适位置，避免滚动条遮挡
+      .attr('text-anchor', 'middle')
+      .style('font-size', '12px')
+      .style('font-weight', '600')
+      .style('fill', '#1D1D1F')
+      .style('font-family', '-apple-system, BlinkMacSystemFont, "SF Pro Text", Helvetica, Arial, sans-serif')
+      .text(formatFunction(tickValue));
+  });
+  
+  console.log(`手动渲染了 ${tickValues.length} 个时间刻度`);
 
   // 5. 添加视图模式标识
   svg.append('text')
@@ -91,7 +141,7 @@ const renderTimeline = () => {
     .attr('y', 20)
     .style('font-size', '12px')
     .style('font-weight', '500')
-    .style('fill', 'var(--primary)')
+    .style('fill', '#007AFF')
     .style('font-family', '-apple-system, BlinkMacSystemFont, "SF Pro Text", Helvetica, Arial, sans-serif')
     .text(props.viewMode === 'day' ? '日视图' : props.viewMode === 'week' ? '周视图' : '月视图');
 
@@ -105,7 +155,7 @@ const renderTimeline = () => {
       .attr('x2', todayX)
       .attr('y1', 0)
       .attr('y2', height)
-      .style('stroke', 'var(--primary)')
+      .style('stroke', '#007AFF')
       .style('stroke-width', 2)
       .style('stroke-dasharray', '4,4');
     
@@ -116,7 +166,7 @@ const renderTimeline = () => {
       .attr('text-anchor', 'middle')
       .style('font-size', '11px')
       .style('font-weight', '600')
-      .style('fill', 'var(--primary)')
+      .style('fill', '#007AFF')
       .text('今天');
   }
 };
@@ -135,10 +185,11 @@ watch(() => [props.xScale, props.viewMode], renderTimeline);
 .timeline-container {
   background: transparent;
   border-bottom: none;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: visible; /* 让时间轴文本完全可见 */
   height: 100%;
   width: 100%;
+  position: relative;
+  z-index: 10; /* 确保时间轴在上层 */
 }
 
 /* 网格线样式 */
@@ -164,10 +215,14 @@ watch(() => [props.xScale, props.viewMode], renderTimeline);
 }
 
 .timeline-container :deep(.axis-main .tick text) {
-  fill: var(--text-primary) !important;
-  font-size: 12px !important;
-  font-weight: 500 !important;
+  fill: #1D1D1F !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', Helvetica, Arial, sans-serif !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  display: block !important;
+  text-anchor: middle !important;
 }
 
 /* 视图模式标识 */

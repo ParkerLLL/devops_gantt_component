@@ -34,6 +34,16 @@ export interface GanttTask {
   actual_start?: string;
   actual_end?: string;
   url?: string;
+  
+  // --- 版本简述信息 ---
+  summary?: {
+    description?: string;        // 版本描述
+    goals?: string[];           // 主要目标
+    features?: string[];        // 核心特性
+    risks?: string[];           // 风险点
+    stakeholders?: string[];    // 相关干系人
+    notes?: string;             // 备注信息
+  };
 }
 export interface Dependency {
   id: string;          // 依赖关系的唯一ID
