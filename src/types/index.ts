@@ -7,7 +7,11 @@ export interface GanttTask {
   start_date: string;
   end_date: string;
   progress: number;
+<<<<<<< HEAD
   type: 'version' | 'sprint' | 'task' | 'requirement' | 'defect' | 'milestone';
+=======
+  type: 'version' | 'sprint' | 'task' | 'requirement' | 'defect';
+>>>>>>> master
   isExpanded?: boolean;
   children?: GanttTask[];
   dependencies?: string[];
@@ -34,6 +38,19 @@ export interface GanttTask {
   actual_start?: string;
   actual_end?: string;
   url?: string;
+<<<<<<< HEAD
+=======
+  
+  // --- 版本简述信息 ---
+  summary?: {
+    description?: string;        // 版本描述
+    goals?: string[];           // 主要目标
+    features?: string[];        // 核心特性
+    risks?: string[];           // 风险点
+    stakeholders?: string[];    // 相关干系人
+    notes?: string;             // 备注信息
+  };
+>>>>>>> master
 }
 export interface Dependency {
   id: string;          // 依赖关系的唯一ID

@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>甘特图组件 API 文档</title>
+    <style>
+        :root {
+            --primary: #007AFF;
+            --bg-primary: #FBFBFD;
+            --bg-secondary: #FFFFFF;
+            --text-primary: #1D1D1F;
+            --text-secondary: #86868B;
+            --border-primary: #D2D2D7;
+            --border-secondary: #E5E5EA;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+        
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 60px;
+            padding-bottom: 30px;
+            border-bottom: 1px solid var(--border-secondary);
+        }
+        
+        .header h1 {
+            font-size: 36px;
+            font-weight: 600;
+            margin: 0 0 16px 0;
+            color: var(--text-primary);
+        }
+        
+        .header p {
+            font-size: 18px;
+            color: var(--text-secondary);
+            margin: 0;
+        }
+        
+        .content {
+            background: var(--bg-secondary);
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            border: 1px solid var(--border-secondary);
+        }
+        
+        .download-section {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 30px;
+            background: var(--bg-primary);
+            border-radius: 12px;
+            border: 1px solid var(--border-secondary);
+        }
+        
+        .download-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--primary);
+            color: white;
+            text-decoration: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+        
+        .download-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
+        }
+        
+        .preview {
+            border: 1px solid var(--border-secondary);
+            border-radius: 8px;
+            padding: 20px;
+            background: #f8f9fa;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 12px;
+            line-height: 1.4;
+            overflow-x: auto;
+        }
+        
+        .notice {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 8px;
+            padding: 16px;
+            margin: 20px 0;
+            color: #856404;
+        }
+        
+        .notice strong {
+            color: #b45309;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>甘特图组件 API 文档</h1>
+            <p>完整的后端接口规范和示例代码</p>
+        </div>
+        
+        <div class="content">
+            <div class="download-section">
+                <h3>📄 完整文档下载</h3>
+                <p>点击下方按钮下载完整的 API 文档（Markdown格式）</p>
+                <a href="/docs/API.md" download="API.md" class="download-btn">
+                    📥 下载 API.md 文档
+                </a>
+            </div>
+            
+            <div class="notice">
+                <strong>💡 提示：</strong> 建议使用支持 Markdown 的编辑器（如 VS Code、Typora）打开下载的文档以获得最佳阅读体验。
+            </div>
+            
+            <h2>📋 文档内容概览</h2>
+            <ul>
+                <li><strong>数据结构定义</strong> - GanttTask、ApiResponse、FilterOptions</li>
+                <li><strong>API接口列表</strong> - 7个核心接口，支持完整的CRUD操作</li>
+                <li><strong>接口详细说明</strong> - 包含请求/响应示例和参数说明</li>
+                <li><strong>错误码规范</strong> - 统一的错误处理机制</li>
+                <li><strong>示例代码</strong> - TypeScript客户端 + Python FastAPI后端</li>
+                <li><strong>部署建议</strong> - 认证、缓存、分页等最佳实践</li>
+            </ul>
+            
+            <h2>🔧 核心接口</h2>
+            <div class="preview">
+GET /api/gantt/tasks           # 获取甘特图数据（支持筛选）
+GET /api/gantt/filters         # 获取筛选选项
+PUT /api/gantt/tasks/{id}/progress    # 更新任务进度
+PUT /api/gantt/tasks/{id}/schedule    # 更新任务时间
+GET /api/gantt/tasks/{id}      # 获取任务详情
+POST /api/gantt/tasks          # 创建任务
+DELETE /api/gantt/tasks/{id}   # 删除任务
+            </div>
+            
+            <h2>📊 数据结构示例</h2>
+            <div class="preview">
+{
+  "id": "version-bkci-3.0",
+  "text": "蓝鲸CI V3.0版本",
+  "start_date": "2025-01-01",
+  "end_date": "2025-06-30",
+  "progress": 0.75,
+  "type": "version",
+  "creator": "张三",
+  "status": "进行中",
+  "project_name": "蓝鲸持续集成平台",
+  "department_name": "TEG",
+  "url": "https://devops.tencent.com/ms/bkci/versions/3.0",
+  "stats": {
+    "total_issues": 89,
+    "closed_issues": 67,
+    "is_overdue": false,
+    // ... 更多统计字段
+  },
+  "children": [
+    // 子任务数组
+  ]
+}
+            </div>
+            
+            <h2>💻 使用建议</h2>
+            <ol>
+                <li><strong>开发阶段</strong>：按照文档规范开发后端API</li>
+                <li><strong>联调阶段</strong>：使用提供的TypeScript客户端封装</li>
+                <li><strong>部署阶段</strong>：参考部署建议配置认证、缓存等</li>
+                <li><strong>完成后</strong>：可删除此页面和相关文档链接</li>
+            </ol>
+            
+            <div class="notice">
+                <strong>🚀 提示：</strong> 开发完成后，请在代码中移除API文档按钮和相关文件。
+            </div>
+        </div>
+    </div>
+</body>
+</html>
