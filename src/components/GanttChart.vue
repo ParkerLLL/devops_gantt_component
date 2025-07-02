@@ -413,16 +413,19 @@ const xScale = computed(() => {
 
   switch (viewMode.value) {
     case 'week':
-      domainStartDate = d3.timeMonth.offset(minDate, -2);
-      domainEndDate = d3.timeMonth.offset(maxDate, 2);
+      // 显示更宽的时间范围，前后各扩展6个月
+      domainStartDate = d3.timeMonth.offset(minDate, -6);
+      domainEndDate = d3.timeMonth.offset(maxDate, 6);
       break;
     case 'month':
-      domainStartDate = d3.timeYear.floor(minDate);
-      domainEndDate = d3.timeYear.ceil(maxDate);
+      // 显示更宽的时间范围，前后各扩展2年
+      domainStartDate = d3.timeYear.offset(minDate, -2);
+      domainEndDate = d3.timeYear.offset(maxDate, 2);
       break;
     default: // 'day'
-      domainStartDate = d3.timeDay.offset(minDate, -3);
-      domainEndDate = d3.timeDay.offset(maxDate, 3);
+      // 显示更宽的时间范围，前后各扩展3个月
+      domainStartDate = d3.timeMonth.offset(minDate, -3);
+      domainEndDate = d3.timeMonth.offset(maxDate, 3);
       break;
   }
 
