@@ -6,6 +6,7 @@ import Timeline from './Timeline.vue';
 import TaskRow from './TaskRow.vue';
 import DependencyLines from './DependencyLines.vue';
 import Tooltip from './Tooltip.vue';
+import ColorLegend from './ColorLegend.vue';
 import type { GanttTask } from '@/types';
 import { fetchGanttData } from '@/services/mockData';
 import TaskDetailsModal from './TaskDetailsModal.vue';
@@ -340,13 +341,15 @@ const filteredTasks = computed(() => {
   return filtered;
 });
 
-// 将树状任务列表拍平，用于渲染
+// 将树状任务列表拍平，只显示版本和迭代层级
 const flattenTasks = (tasks: GanttTask[], depth = 0): (GanttTask & { depth: number })[] => {
   let result: (GanttTask & { depth: number })[] = [];
   for (const task of tasks) {
-    result.push({ ...task, depth });
-    if (task.isExpanded && task.children) {
-      result = result.concat(flattenTasks(task.children, depth + 1));
+    // 只显示版本(version)和迭代(sprint)类型的任务
+    if (task.type === 'version' || task.type === 'sprint') {
+      result.push({ ...task, depth });
+      // 不再递归显示子级工作项，只显示版本和迭代本身
+      // 具体的工作项（需求/缺陷/任务）将在弹窗中显示
     }
   }
   return result;
@@ -398,6 +401,15 @@ const handleToggleTask = (taskId: string) => {
   };
 
   findAndToggle(tasks.value);
+};
+
+// 获取状态样式类名
+const getStatusClass = (status: string): string => {
+  if (status.includes('完成') || status.includes('已完成')) return 'completed';
+  if (status.includes('进行中') || status.includes('开发中') || status.includes('测试中')) return 'in-progress';
+  if (status.includes('规划中') || status.includes('未开始') || status.includes('需求分析') || status.includes('设计中')) return 'not-started';
+  if (status.includes('已修复')) return 'completed';
+  return 'default';
 };
 
 const xScale = computed(() => {
@@ -851,6 +863,11 @@ const workItemStats = computed(() => {
               </div>
             </div>
           </div>
+          
+          <!-- 颜色图例 -->
+          <div class="legend-section">
+            <ColorLegend />
+          </div>
         </div>
 
         
@@ -874,10 +891,18 @@ const workItemStats = computed(() => {
                   @dblclick="handleDoubleClick(row.task)"
                 >
                   <div class="task-content" :style="{ paddingLeft: `${row.task.depth * 20}px` }">
-                    <button v-if="row.task.children && row.task.children.length > 0" @click.stop="handleToggleTask(row.task.id)" class="toggle-btn">
-                      {{ row.task.isExpanded ? '▼' : '▶' }}
+                    <button v-if="row.task.children && row.task.children.length > 0" @click.stop="handleDoubleClick(row.task)" class="details-btn" title="查看工作项详情">
+                      📋
                     </button>
-                    <span class="task-name">{{ row.task.text }}</span>
+                    <div class="task-info">
+                      <span class="task-type-badge" :class="`type-${row.task.type}`">
+                        {{ row.task.type === 'version' ? '版本' : '迭代' }}
+                      </span>
+                      <span class="task-name">{{ row.task.text }}</span>
+                      <span class="task-status-badge" :class="`status-${getStatusClass(row.task.status)}`">
+                        {{ row.task.status }}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </template>
@@ -1578,26 +1603,26 @@ const workItemStats = computed(() => {
   width: 3px;
 }
 
-.toggle-btn {
-  background: var(--primary);
-  border: none;
+.details-btn {
+  background: rgba(0, 122, 255, 0.1);
+  border: 1px solid rgba(0, 122, 255, 0.2);
   cursor: pointer;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   border-radius: var(--radius-small);
   display: flex;
   align-items: center;
   justify-content: center;
   margin-right: 12px;
-  color: #ffffff;
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 12px;
   transition: all 0.2s ease;
   box-shadow: var(--shadow-light);
 }
 
-.toggle-btn:hover {
-  transform: scale(1.1);
+.details-btn:hover {
+  background: rgba(0, 122, 255, 0.15);
+  border-color: rgba(0, 122, 255, 0.3);
+  transform: scale(1.05);
   box-shadow: var(--shadow-medium);
 }
 
@@ -2012,5 +2037,91 @@ const workItemStats = computed(() => {
 .filter-item select:hover {
   border-color: var(--border-secondary);
   box-shadow: var(--shadow-light);
+}
+
+/* 颜色图例区域 */
+.legend-section {
+  display: flex;
+  align-items: center;
+  margin-left: 16px;
+}
+
+/* 任务信息布局 */
+.task-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+/* 类型标签 */
+.task-type-badge {
+  background: rgba(0, 122, 255, 0.1);
+  color: #007AFF;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 122, 255, 0.2);
+  text-align: center;
+  min-width: 32px;
+  flex-shrink: 0;
+}
+
+.task-type-badge.type-version {
+  background: rgba(0, 122, 255, 0.1);
+  color: #007AFF;
+  border-color: rgba(0, 122, 255, 0.2);
+}
+
+.task-type-badge.type-sprint {
+  background: rgba(52, 199, 89, 0.1);
+  color: #34C759;
+  border-color: rgba(52, 199, 89, 0.2);
+}
+
+/* 任务名称 */
+.task-name {
+  flex: 1;
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 状态标签 */
+.task-status-badge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-align: center;
+  flex-shrink: 0;
+  border: 1px solid;
+}
+
+.task-status-badge.status-completed {
+  background: rgba(52, 199, 89, 0.1);
+  color: #1d8348;
+  border-color: rgba(52, 199, 89, 0.3);
+}
+
+.task-status-badge.status-in-progress {
+  background: rgba(255, 149, 0, 0.1);
+  color: #d68910;
+  border-color: rgba(255, 149, 0, 0.3);
+}
+
+.task-status-badge.status-not-started {
+  background: rgba(142, 142, 147, 0.1);
+  color: #8e8e93;
+  border-color: rgba(142, 142, 147, 0.3);
+}
+
+.task-status-badge.status-default {
+  background: rgba(142, 142, 147, 0.1);
+  color: #8e8e93;
+  border-color: rgba(142, 142, 147, 0.3);
 }
 </style>

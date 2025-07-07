@@ -24,26 +24,75 @@ const bar = computed(() => {
   return { x, width };
 });
 
-const progressWidth = computed(() => {
-  return bar.value.width * props.task.progress;
+// 工作项类型颜色映射
+const workItemColors = {
+  requirement: 'rgb(0, 65, 109)',
+  defect: 'rgb(245, 20, 85)', 
+  task: 'rgb(0, 160, 255)',
+  other: 'rgb(156, 0, 99)'
+};
+
+// 计算工作项类型占比分段
+const workItemSegments = computed(() => {
+  const stats = props.task.stats;
+  const total = stats.total_requirements + stats.total_tasks + stats.total_defects;
+  
+  if (total === 0) return [];
+  
+  const segments = [];
+  let currentX = 0;
+  
+  // 需求占比
+  if (stats.total_requirements > 0) {
+    const width = (stats.total_requirements / total) * bar.value.width;
+    segments.push({
+      x: currentX,
+      width,
+      color: workItemColors.requirement,
+      type: 'requirement'
+    });
+    currentX += width;
+  }
+  
+  // 任务占比
+  if (stats.total_tasks > 0) {
+    const width = (stats.total_tasks / total) * bar.value.width;
+    segments.push({
+      x: currentX,
+      width,
+      color: workItemColors.task,
+      type: 'task'
+    });
+    currentX += width;
+  }
+  
+  // 缺陷占比
+  if (stats.total_defects > 0) {
+    const width = (stats.total_defects / total) * bar.value.width;
+    segments.push({
+      x: currentX,
+      width,
+      color: workItemColors.defect,
+      type: 'defect'
+    });
+  }
+  
+  return segments;
 });
 
 const barColor = computed(() => {
-  if (props.task.type === 'version') return '#007AFF';
-  if (props.task.type === 'requirement') return '#5856D6';
-  if (props.task.type === 'defect') return '#FF3B30';
-  if (props.task.type === 'sprint') return '#34C759';
-  if (props.task.type === 'task') return '#FF9500';
-  return '#007AFF';
+  if (props.task.type === 'version') return '#007AFF';        // 蓝色 (版本)
+  if (props.task.type === 'sprint') return '#34C759';         // 绿色 (迭代)
+  if (props.task.type === 'requirement') return 'rgb(0, 65, 109)';  // 需求
+  if (props.task.type === 'defect') return 'rgb(245, 20, 85)';      // 缺陷
+  if (props.task.type === 'task') return 'rgb(0, 160, 255)';        // 任务
+  // 其他工作项子类的默认颜色
+  return 'rgb(156, 0, 99)';
 });
 
-const progressColor = computed(() => {
-  if (props.task.type === 'version') return '#005FCC';
-  if (props.task.type === 'requirement') return '#4B44C7';
-  if (props.task.type === 'defect') return '#D70015';
-  if (props.task.type === 'sprint') return '#248A3D';
-  if (props.task.type === 'task') return '#CC7A00';
-  return '#005FCC';
+// 是否显示工作项占比分段（仅版本和迭代显示）
+const showWorkItemSegments = computed(() => {
+  return (props.task.type === 'version' || props.task.type === 'sprint') && workItemSegments.value.length > 0;
 });
 
 
@@ -55,23 +104,22 @@ const showCreator = computed(() => {
   return false;
 });
 
-// Position for labels
-const labelPosition = computed(() => {
-  // Increased horizontal padding for text to make it less crowded
-  const baseX = bar.value.x + 10;
-  const baseY = props.height / 2;
+// 进度百分比文本
+const progressPercentage = computed(() => {
+  return Math.round(props.task.progress * 100);
+});
 
+// Position for progress label (右侧显示)
+const progressLabelPosition = computed(() => {
   return {
-    taskLabel: {
-      x: baseX,
-      // Center the task label vertically since creator is hidden
-      y: baseY
-    },
-    creatorLabel: {
-      x: baseX,
-      y: baseY + 10
-    }
+    x: bar.value.x + bar.value.width + 8, // 甘特条右边 + 8px间距
+    y: props.height / 2 // 垂直居中
   };
+});
+
+// 总是显示进度百分比（放在右侧，不受宽度限制）
+const showProgressText = computed(() => {
+  return true;
 });
 
 </script>
@@ -111,39 +159,31 @@ const labelPosition = computed(() => {
       class="task-bar"
       :class="{ 'task-overdue': task.stats.is_overdue }"
     />
-    <rect
-      :x="bar.x"
-      y="4"
-      :width="progressWidth"
-      :height="height - 8"
-      :fill="progressColor"
-      rx="3"
-      ry="3"
-      class="task-progress"
-    />
     
-    <!-- Text Group with Clipping Applied -->
-    <g :clip-path="`url(#${clipPathId})`">
-      <!-- Task Title -->
-      <text 
-        :x="labelPosition.taskLabel.x" 
-        :y="labelPosition.taskLabel.y" 
-        class="task-label"
-      >
-        {{ task.text }}
-      </text>
-      
-      <!-- Creator Info (conditionally rendered) -->
-      <g v-if="showCreator" class="creator-group">
-        <text 
-          :x="labelPosition.creatorLabel.x" 
-          :y="labelPosition.creatorLabel.y" 
-          class="task-creator"
-        >
-          {{ task.creator }}
-        </text>
-      </g>
+    <!-- 工作项类型占比分段 (仅版本和迭代显示) -->
+    <g v-if="showWorkItemSegments">
+      <rect
+        v-for="(segment, index) in workItemSegments"
+        :key="`segment-${index}`"
+        :x="bar.x + segment.x"
+        :y="4"
+        :width="segment.width"
+        :height="height - 8"
+        :fill="segment.color"
+        class="work-item-segment"
+        opacity="0.85"
+      />
     </g>
+    
+    <!-- Progress Percentage (右侧显示，不裁剪) -->
+    <text 
+      v-if="showProgressText"
+      :x="progressLabelPosition.x" 
+      :y="progressLabelPosition.y" 
+      class="progress-label"
+    >
+      {{ progressPercentage }}%
+    </text>
   </g>
 </template>
 
@@ -181,6 +221,10 @@ const labelPosition = computed(() => {
   transition: width 0.3s ease;
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.08));
 }
+.work-item-segment {
+  transition: all 0.2s ease;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.1));
+}
 .task-label {
   fill: #ffffff;
   font-size: 13px;
@@ -201,6 +245,16 @@ const labelPosition = computed(() => {
   opacity: 0.9;
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.15);
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', Helvetica, Arial, sans-serif;
+}
+.progress-label {
+  fill: #1d1d1f;
+  font-size: 12px;
+  font-weight: 600;
+  dominant-baseline: middle;
+  text-anchor: start;
+  pointer-events: none;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', Helvetica, Arial, sans-serif;
+  opacity: 0.8;
 }
 
 </style>
