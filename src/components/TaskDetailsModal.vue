@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { watch, computed } from 'vue';
 import type { GanttTask } from '@/types';
 
 const props = defineProps<{
@@ -7,6 +8,10 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits(['close']);
+
+// 移除调试代码
+// watch(() => props.visible, (newVal) => { ... }); // 已移除
+// watch(() => props.task, (newVal) => { ... }); // 已移除
 
 const closeModal = () => {
   emit('close');
@@ -42,6 +47,32 @@ const formatDate = (dateStr: string) => {
     day: '2-digit'
   });
 };
+
+// 格式化统计数字，确保显示正确
+const formatStatNumber = (num: any) => {
+  // 处理可能的字符串和数字转换问题
+  const parsed = typeof num === 'string' ? parseInt(num, 10) : num;
+  return isNaN(parsed) ? 0 : parsed;
+};
+
+// 格式化统计显示
+const formatStatDisplay = (closed: any, total: any) => {
+  const closedNum = formatStatNumber(closed);
+  const totalNum = formatStatNumber(total);
+  return `${closedNum}/${totalNum}`;
+};
+
+// 安全的进度百分比计算
+const safeProgressPercent = computed(() => {
+  if (!props.task) return 0;
+  const progress = props.task.progress;
+  // 如果进度已经是百分比格式（>1），直接使用
+  if (progress > 1) {
+    return Math.round(progress);
+  }
+  // 如果是小数格式（0-1），转换为百分比
+  return Math.round(progress * 100);
+});
 
 // 打开任务链接
 const openTaskUrl = () => {
@@ -88,7 +119,7 @@ const openTaskUrl = () => {
               <h2 class="task-title">{{ task.text }}</h2>
               <div class="task-meta">
                 <span class="task-type">{{ getTaskTypeLabel(task.type) }}</span>
-                <span class="task-progress">{{ (task.progress * 100).toFixed(0) }}% 完成</span>
+                <span class="task-progress">{{ safeProgressPercent }}% 完成</span>
               </div>
             </div>
             <div class="task-status" :style="{ color: getStatusColor(task.status) }">
@@ -96,24 +127,15 @@ const openTaskUrl = () => {
             </div>
           </div>
 
-          <!-- 版本/迭代简述 -->
-          <div v-if="task.type === 'version' || task.type === 'sprint'" class="summary-section">
-            <h3 class="section-title">
-              📋 {{ task.type === 'version' ? '版本' : '迭代' }}简述
-            </h3>
-            <div class="summary-placeholder">
-              <p>{{ task.type === 'version' ? '版本' : '迭代' }}简述信息将在后续数据中提供</p>
-            </div>
-          </div>
 
           <!-- 进度条 -->
           <div class="progress-section">
             <div class="progress-header">
               <span class="progress-label">完成进度</span>
-              <span class="progress-value">{{ (task.progress * 100).toFixed(0) }}%</span>
+              <span class="progress-value">{{ safeProgressPercent }}%</span>
             </div>
             <div class="progress-bar">
-              <div class="progress-fill" :style="{ width: (task.progress * 100) + '%' }"></div>
+              <div class="progress-fill" :style="{ width: safeProgressPercent + '%' }"></div>
             </div>
           </div>
 
@@ -125,7 +147,8 @@ const openTaskUrl = () => {
               <div class="info-list">
                 <div class="info-item">
                   <span class="info-label">创建人</span>
-                  <span class="info-value">{{ task.creator }}</span>
+                  <span class="info-value">{{ task.creator || '未设置' }}</span>
+                  <!-- 调试信息：{{ JSON.stringify({ creator: task.creator, hasCreator: !!task.creator }) }} -->
                 </div>
                 <div class="info-item">
                   <span class="info-label">所属项目</span>
@@ -154,21 +177,18 @@ const openTaskUrl = () => {
             </div>
 
             <!-- 统计信息 -->
-            <div class="info-section">
+            <div class="info-section" style="grid-column: 1 / -1;">
               <h3 class="section-title">工作项统计</h3>
-              <div class="stats-grid">
-                <div class="stat-card">
-                  <div class="stat-number">{{ task.stats.closed_requirements }}/{{ task.stats.total_requirements }}</div>
-                  <div class="stat-label">需求</div>
-                </div>
-                <div class="stat-card">
-                  <div class="stat-number">{{ task.stats.closed_tasks }}/{{ task.stats.total_tasks }}</div>
-                  <div class="stat-label">任务</div>
-                </div>
-                <div class="stat-card">
-                  <div class="stat-number">{{ task.stats.closed_defects }}/{{ task.stats.total_defects }}</div>
-                  <div class="stat-label">缺陷</div>
-                </div>
+              <div class="stats-inline">
+                <span class="stat-item">
+                  <strong>需求:</strong> {{ formatStatDisplay(task.stats.closed_requirements, task.stats.total_requirements) }}
+                </span>
+                <span class="stat-item">
+                  <strong>任务:</strong> {{ formatStatDisplay(task.stats.closed_tasks, task.stats.total_tasks) }}
+                </span>
+                <span class="stat-item">
+                  <strong>缺陷:</strong> {{ formatStatDisplay(task.stats.closed_defects, task.stats.total_defects) }}
+                </span>
               </div>
             </div>
 
@@ -211,59 +231,85 @@ const openTaskUrl = () => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.25);
-  backdrop-filter: blur(10px);
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 1000;
+  z-index: 9999;
   padding: 20px;
 }
 
 /* 主容器 */
 .modal-content {
-  background: var(--bg-secondary);
-  border-radius: var(--radius-xl);
+  background: linear-gradient(145deg, #ffffff 0%, #f8fafc 100%);
+  border-radius: 16px;
   width: 100%;
-  max-width: 480px;
-  max-height: 90vh;
+  max-width: 700px;
+  max-height: 85vh;
   overflow: hidden;
-  box-shadow: var(--shadow-heavy);
-  border: 1px solid var(--border-tertiary);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   display: flex;
   flex-direction: column;
+  backdrop-filter: blur(20px);
 }
 
-/* iOS风格导航栏 */
+/* 现代导航栏 */
 .modal-nav {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 56px;
-  padding: 0 8px;
-  background: var(--primary);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  height: 64px;
+  padding: 0 24px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 252, 0.95) 100%);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+  backdrop-filter: blur(20px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
 .nav-btn {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 8px 12px;
-  background: none;
-  border: none;
-  color: #ffffff;
-  font-size: 16px;
-  font-weight: 500;
+  gap: 8px;
+  padding: 12px 20px;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(226, 232, 240, 0.6);
+  color: #475569;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
-  border-radius: var(--radius-small);
-  transition: all 0.2s ease;
-  min-width: 60px;
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', Helvetica, Arial, sans-serif;
+  border-radius: 12px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  min-width: 90px;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', Helvetica, Arial, sans-serif;
+  backdrop-filter: blur(10px);
+  position: relative;
+  overflow: hidden;
 }
 
 .nav-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(148, 163, 184, 0.4);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px -8px rgba(0, 0, 0, 0.15);
+}
+
+.nav-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  transition: left 0.5s;
+}
+
+.nav-btn:hover::before {
+  left: 100%;
 }
 
 .nav-btn-left {
@@ -272,58 +318,93 @@ const openTaskUrl = () => {
 
 .nav-btn-right {
   justify-content: flex-end;
-  background: rgba(255, 255, 255, 0.15);
-  backdrop-filter: blur(10px);
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  color: white;
+  border-color: transparent;
+  box-shadow: 0 4px 14px 0 rgba(59, 130, 246, 0.25);
 }
 
 .nav-btn-right:hover {
-  background: rgba(255, 255, 255, 0.25);
-  transform: translateY(-1px);
+  background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px -8px rgba(59, 130, 246, 0.4);
 }
 
 .nav-btn-placeholder {
-  min-width: 60px;
+  min-width: 80px;
 }
 
 .nav-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: #ffffff;
+  font-size: 22px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #1e293b 0%, #475569 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   margin: 0;
   text-align: center;
+  letter-spacing: -0.02em;
 }
 
 /* 主体内容 */
 .modal-body {
-  padding: 0;
+  padding: 24px;
   overflow-y: auto;
   flex: 1;
+  display: block;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(248, 250, 252, 0.9) 100%);
 }
 
 /* 信息卡片 */
 .info-card {
-  background: var(--bg-secondary);
-  margin: 16px;
-  padding: 20px;
-  border-radius: 12px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
-  border: 1px solid var(--border-light);
+  background: linear-gradient(145deg, #ffffff 0%, #f8fafc 100%);
+  margin: 0 0 20px 0;
+  padding: 24px;
+  border-radius: 16px;
+  box-shadow: 0 4px 25px -4px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(226, 232, 240, 0.5);
+  position: relative;
+  overflow: hidden;
+}
+
+.info-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.3), transparent);
 }
 
 .header-card {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 
 .task-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
+  width: 60px;
+  height: 60px;
+  border-radius: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 8px 25px -8px rgba(0, 0, 0, 0.2);
+}
+
+.task-icon::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(45deg, rgba(255, 255, 255, 0.1), transparent);
 }
 
 .task-icon-version { background: linear-gradient(135deg, var(--primary-blue), var(--primary-blue-light)); color: white; }
@@ -338,11 +419,15 @@ const openTaskUrl = () => {
 }
 
 .task-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0 0 8px 0;
-  line-height: 1.3;
+  font-size: 24px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #1e293b 0%, #475569 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0 0 12px 0;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
 }
 
 .task-meta {
@@ -352,12 +437,15 @@ const openTaskUrl = () => {
 }
 
 .task-type {
-  background: var(--primary-blue);
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
   color: white;
-  padding: 4px 8px;
-  border-radius: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  box-shadow: 0 2px 8px -2px rgba(59, 130, 246, 0.3);
 }
 
 .task-progress {
@@ -369,19 +457,23 @@ const openTaskUrl = () => {
 .task-status {
   font-size: 14px;
   font-weight: 600;
-  padding: 6px 12px;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.05);
+  padding: 8px 16px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(0, 0, 0, 0.05) 0%, rgba(0, 0, 0, 0.02) 100%);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  backdrop-filter: blur(10px);
 }
 
 /* 版本简述部分 */
 .summary-section {
-  margin: 16px;
-  padding: 20px;
-  background: linear-gradient(135deg, var(--bg-secondary), var(--bg-tertiary));
-  border-radius: 12px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
-  border: 1px solid var(--border-secondary);
+  margin: 0;
+  padding: 24px;
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  border: 1px solid #e9ecef;
+  grid-column: 1 / -1;
+  margin-bottom: 24px;
 }
 
 .summary-section .section-title {
@@ -409,12 +501,24 @@ const openTaskUrl = () => {
 
 /* 进度条部分 */
 .progress-section {
-  margin: 16px;
+  margin: 0 0 20px 0;
   padding: 20px;
-  background: var(--bg-secondary);
-  border-radius: 12px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
-  border: 1px solid var(--border-light);
+  background: linear-gradient(145deg, #ffffff 0%, #f8fafc 100%);
+  border-radius: 16px;
+  box-shadow: 0 4px 25px -4px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(226, 232, 240, 0.5);
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-section::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(52, 211, 153, 0.3), transparent);
 }
 
 .progress-header {
@@ -436,49 +540,107 @@ const openTaskUrl = () => {
 }
 
 .progress-bar {
-  height: 8px;
-  background: var(--border-light);
-  border-radius: 4px;
+  height: 10px;
+  background: linear-gradient(90deg, #f1f5f9 0%, #e2e8f0 100%);
+  border-radius: 12px;
   overflow: hidden;
+  position: relative;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06);
 }
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--primary-blue), var(--tech-blue));
-  border-radius: 4px;
-  transition: width 0.3s ease;
+  background: linear-gradient(90deg, #3b82f6 0%, #06b6d4 50%, #10b981 100%);
+  border-radius: 12px;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-fill::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  animation: progress-shine 2s infinite;
+}
+
+@keyframes progress-shine {
+  0% { left: -100%; }
+  100% { left: 100%; }
 }
 
 /* 信息部分 */
 .info-sections {
-  padding: 0 16px 20px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
 }
 
 .info-section {
-  margin-bottom: 24px;
+  margin-bottom: 0;
+  background: linear-gradient(145deg, #ffffff 0%, #f8fafc 100%);
+  padding: 20px;
+  border-radius: 16px;
+  box-shadow: 0 4px 25px -4px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(226, 232, 240, 0.5);
+  height: fit-content;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.info-section:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 35px -8px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(255, 255, 255, 0.5);
+}
+
+.info-section::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(99, 102, 241, 0.3), transparent);
 }
 
 .section-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0 0 12px 0;
-  padding: 0 4px;
+  font-size: 18px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #1e293b 0%, #475569 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0 0 16px 0;
+  padding: 0;
+  letter-spacing: -0.01em;
 }
 
 .info-list {
-  background: var(--bg-secondary);
+  background: linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%);
   border-radius: 12px;
-  border: 1px solid var(--border-light);
+  border: 1px solid rgba(226, 232, 240, 0.6);
   overflow: hidden;
+  margin-top: 0;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.02);
 }
 
 .info-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border-light);
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.4);
+  transition: background-color 0.2s ease;
+}
+
+.info-item:hover {
+  background: rgba(255, 255, 255, 0.5);
 }
 
 .info-item:last-child {
@@ -486,56 +648,53 @@ const openTaskUrl = () => {
 }
 
 .info-label {
-  font-weight: 500;
-  color: var(--text-secondary);
-  min-width: 80px;
+  font-weight: 600;
+  color: #64748b;
+  min-width: 90px;
+  font-size: 14px;
 }
 
 .info-value {
-  font-weight: 600;
-  color: var(--text-primary);
-  text-align: right;
-}
-
-/* 统计网格 */
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-}
-
-.stat-card {
-  background: var(--bg-secondary);
-  padding: 16px;
-  border-radius: 12px;
-  text-align: center;
-  border: 1px solid var(--border-light);
-  transition: transform 0.2s ease;
-}
-
-.stat-card:hover {
-  transform: translateY(-2px);
-}
-
-.stat-number {
-  font-size: 18px;
   font-weight: 700;
-  color: var(--primary-blue);
-  margin-bottom: 4px;
+  color: #1e293b;
+  text-align: right;
+  font-size: 14px;
 }
 
-.stat-label {
-  font-size: 12px;
-  color: var(--text-secondary);
-  font-weight: 500;
+
+/* 统计信息行内显示 */
+.stats-inline {
+  display: flex;
+  gap: 24px;
+  background: linear-gradient(145deg, #f8fafc 0%, #f1f5f9 100%);
+  padding: 16px 20px;
+  border-radius: 12px;
+  border: 1px solid rgba(226, 232, 240, 0.6);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.02);
+}
+
+.stat-item {
+  font-size: 15px;
+  color: #1e293b;
+  font-weight: 600;
+}
+
+.stat-item strong {
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-right: 6px;
+  font-weight: 700;
 }
 
 /* 依赖关系 */
 .dependency-list {
-  background: var(--bg-secondary);
-  border-radius: 12px;
-  border: 1px solid var(--border-light);
+  background: #f8f9fa;
+  border-radius: 6px;
+  border: 1px solid #e9ecef;
   overflow: hidden;
+  margin-top: 12px;
 }
 
 .dependency-item {
@@ -561,11 +720,16 @@ const openTaskUrl = () => {
 }
 
 /* 响应式设计 */
-@media (max-width: 480px) {
+@media (max-width: 768px) {
   .modal-content {
-    margin: 0;
-    border-radius: 16px 16px 0 0;
-    max-height: 95vh;
+    max-width: 95vw;
+    margin: 20px;
+  }
+  
+  .modal-body {
+    grid-template-columns: 1fr;
+    gap: 16px;
+    padding: 16px;
   }
   
   .stats-grid {
@@ -580,6 +744,11 @@ const openTaskUrl = () => {
   
   .info-value {
     text-align: left;
+  }
+  
+  .header-card {
+    flex-direction: column;
+    text-align: center;
   }
 }
 </style>
